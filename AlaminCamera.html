@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Camera App</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            z-index: 2;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        .controls button {
+            background-color: rgba(0, 0, 0, 0.6);
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        .controls button img {
+            width: 30px;
+            height: 30px;
+        }
+        .filter-options {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 3;
+        }
+        select {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <video id="camera" autoplay playsinline></video>
+
+    <div class="filter-options">
+        <select id="filter" onchange="applyFilter(this.value)">
+            <option value="none">No Filter</option>
+            <option value="brightness(1.2) contrast(1.1)">Vivid</option>
+            <option value="grayscale(100%)">Noir</option>
+            <option value="sepia(100%) brightness(1.1)">Dramatic Warm</option>
+            <option value="contrast(2) brightness(1)">Dramatic Cool</option>
+        </select>
+    </div>
+
+    <div class="controls">
+        <button onclick="switchCamera()">
+            <img src="icons/switch-camera.png" alt="Switch Camera">
+        </button>
+        <button onclick="toggleFlash()">
+            <img src="icons/flashlight.png" alt="Toggle Flashlight">
+        </button>
+        <button onclick="takePicture()">
+            <img src="icons/camera.png" alt="Take Picture">
+        </button>
+        <button onclick="startStopRecording()">
+            <img id="record-icon" src="icons/record.png" alt="Start/Stop Recording">
+        </button>
+        <button onclick="toggleFullscreen()">
+            <img src="icons/fullscreen.png" alt="Toggle Fullscreen">
+        </button>
+    </div>
+
+    <script>
+        let video = document.getElementById('camera');
+        let currentStream = null;
+        let isFrontCamera = true;
+        let flashOn = false;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+
+        // Initialize Camera
+        async function initCamera() {
+            const constraints = {
+                video: {
+                    facingMode: isFrontCamera ? 'user' : 'environment',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                }
+            };
+            if (currentStream) {
+                stopCamera();
+            }
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+            } catch (error) {
+                console.error("Error accessing the camera:", error);
+                alert("Unable to access the camera. Please check permissions.");
+            }
+        }
+
+        // Switch Camera
+        function switchCamera() {
+            isFrontCamera = !isFrontCamera;
+            initCamera();
+        }
+
+        // Toggle Flashlight
+        async function toggleFlash() {
+            if (!currentStream) {
+                alert("Camera not started!");
+                return;
+            }
+            const track = currentStream.getVideoTracks()[0];
+            const capabilities = track.getCapabilities();
+            if (capabilities.torch) {
+                flashOn = !flashOn;
+                try {
+                    await track.applyConstraints({
+                        advanced: [{ torch: flashOn }]
+                    });
+                } catch (error) {
+                    console.error("Flashlight error:", error);
+                }
+            } else {
+                alert("Flashlight not supported on this device!");
+            }
+        }
+
+        // Apply Filters
+        function applyFilter(filter) {
+            video.style.filter = filter;
+        }
+
+        // Fullscreen Toggle
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Take Picture
+        function takePicture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = 'picture.png';
+            a.click();
+        }
+
+        // Start/Stop Video Recording
+        function startStopRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        function startRecording() {
+            if (!currentStream) {
+                alert("Camera not started!");
+                return;
+            }
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(currentStream);
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+            mediaRecorder.start();
+            document.getElementById('record-icon').src = "icons/stop.png";
+            isRecording = true;
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+                mediaRecorder.onstop = saveVideo;
+                document.getElementById('record-icon').src = "icons/record.png";
+                isRecording = false;
+            }
+        }
+
+        // Save Video
+        function saveVideo() {
+            const blob = new Blob(recordedChunks, { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'video.mp4';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Stop Camera
+        function stopCamera() {
+            if (currentStream) {
+                const tracks = currentStream.getTracks();
+                tracks.forEach(track => track.stop());
+                currentStream = null;
+                video.srcObject = null;
+            }
+        }
+
+        // Initialize the front camera on load
+        window.onload = initCamera;
+    </script>
+</body>
+</html>
